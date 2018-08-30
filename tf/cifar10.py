@@ -197,14 +197,18 @@ def inference(images):
   # tf.Variable() in order to share variables across multiple GPU training runs.
   # If we only ran this model on a single GPU, we could simplify this function
   # by replacing all instances of tf.get_variable() with tf.Variable().
+  # 我们使用 tf.get_variable() 而不是 tf.Variable() 来实例化所有变量，以便在多个 gpu 训练运行中共享变量。
+  # 如果我们只在单个 gpu 上运行此模型，我们可以通过用 tf.Variable() 替换 tf.get_variable() 的所有实例来简化此功能。
   #
   # conv1
   with tf.variable_scope('conv1') as scope:
+    # 创建 kernel 是带有权重的衰减变量
     kernel = _variable_with_weight_decay('weights',
                                          shape=[5, 5, 3, 64],
                                          stddev=5e-2,
                                          wd=None)
     conv = tf.nn.conv2d(images, kernel, [1, 1, 1, 1], padding='SAME')
+    # 创建在 cpu 上的变量，使用的是 tf.get_variable
     biases = _variable_on_cpu('biases', [64], tf.constant_initializer(0.0))
     pre_activation = tf.nn.bias_add(conv, biases)
     conv1 = tf.nn.relu(pre_activation, name=scope.name)
@@ -237,8 +241,10 @@ def inference(images):
                          strides=[1, 2, 2, 1], padding='SAME', name='pool2')
 
   # local3
+  # 基于修正线性激活的全连接层
   with tf.variable_scope('local3') as scope:
     # Move everything into depth so we can perform a single matrix multiply.
+    # 将所有的变量移动到 depth，因此我们可以执行单个矩阵乘法。
     reshape = tf.reshape(pool2, [images.get_shape().as_list()[0], -1])
     dim = reshape.get_shape()[1].value
     weights = _variable_with_weight_decay('weights', shape=[dim, 384],
@@ -248,6 +254,7 @@ def inference(images):
     _activation_summary(local3)
 
   # local4
+  # 基于修正线性激活的全连接层
   with tf.variable_scope('local4') as scope:
     weights = _variable_with_weight_decay('weights', shape=[384, 192],
                                           stddev=0.04, wd=0.004)
@@ -259,6 +266,7 @@ def inference(images):
   # We don't apply softmax here because
   # tf.nn.sparse_softmax_cross_entropy_with_logits accepts the unscaled logits
   # and performs the softmax internally for efficiency.
+  # 我们不在这里应用 softmax ，因为 tf.nn.sparse_softmax_cross_entropy_with_logits 接受未缩放的 logits 并在内部执行了 softmax 以提高效率。
   with tf.variable_scope('softmax_linear') as scope:
     weights = _variable_with_weight_decay('weights', [192, NUM_CLASSES],
                                           stddev=1/192.0, wd=None)
@@ -281,6 +289,7 @@ def loss(logits, labels):
     Loss tensor of type float.
   """
   # Calculate the average cross entropy loss across the batch.
+  # 计算 batch 的平均交叉熵 loss
   labels = tf.cast(labels, tf.int64)
   cross_entropy = tf.nn.sparse_softmax_cross_entropy_with_logits(
       labels=labels, logits=logits, name='cross_entropy_per_example')
@@ -289,6 +298,7 @@ def loss(logits, labels):
 
   # The total loss is defined as the cross entropy loss plus all of the weight
   # decay terms (L2 loss).
+  # 总 loss 定义为 交叉熵损失加上所有权重衰减项（L2 loss）
   return tf.add_n(tf.get_collection('losses'), name='total_loss')
 
 
@@ -296,21 +306,27 @@ def _add_loss_summaries(total_loss):
   """Add summaries for losses in CIFAR-10 model.
   Generates moving average for all losses and associated summaries for
   visualizing the performance of the network.
+  添加 CIFAR-10 模型中的损失摘要。
+  生成所有损失的移动平均值和相关摘要，以便可视化网络性能。
   Args:
     total_loss: Total loss from loss().
   Returns:
     loss_averages_op: op for generating moving averages of losses.
   """
   # Compute the moving average of all individual losses and the total loss.
+  # 计算所有独立损失与总损失的移动平均
+  # tf.train.Exponen tialMovingAverage() 通过使用指数衰减维持变量的移动平均值
   loss_averages = tf.train.ExponentialMovingAverage(0.9, name='avg')
   losses = tf.get_collection('losses')
   loss_averages_op = loss_averages.apply(losses + [total_loss])
 
   # Attach a scalar summary to all individual losses and the total loss; do the
   # same for the averaged version of the losses.
+  # 添加所有的 独立 loss 和 总 loss，为 loss 的平均版本做同样的事情
   for l in losses + [total_loss]:
     # Name each loss as '(raw)' and name the moving average version of the loss
     # as the original loss name.
+    # 为每个 loss 命名为 '(raw)' ，并将损失的移动平均版本命名为原始损失名称
     tf.summary.scalar(l.op.name + ' (raw)', l)
     tf.summary.scalar(l.op.name, loss_averages.average(l))
 
@@ -321,6 +337,8 @@ def train(total_loss, global_step):
   """Train CIFAR-10 model.
   Create an optimizer and apply to all trainable variables. Add moving
   average for all trainable variables.
+  训练 CIFAR-10 模型。
+  创建一个 optimizer 并且应用到所有的可训练的 variables。为所有的可训练的 variable 添加 移动平均
   Args:
     total_loss: Total loss from loss().
     global_step: Integer Variable counting the number of training steps
@@ -329,10 +347,12 @@ def train(total_loss, global_step):
     train_op: op for training.
   """
   # Variables that affect learning rate.
+  # 影响到 learning rate 的 Variables
   num_batches_per_epoch = NUM_EXAMPLES_PER_EPOCH_FOR_TRAIN / FLAGS.batch_size
   decay_steps = int(num_batches_per_epoch * NUM_EPOCHS_PER_DECAY)
 
   # Decay the learning rate exponentially based on the number of steps.
+  # 衰减 lr
   lr = tf.train.exponential_decay(INITIAL_LEARNING_RATE,
                                   global_step,
                                   decay_steps,
@@ -341,26 +361,32 @@ def train(total_loss, global_step):
   tf.summary.scalar('learning_rate', lr)
 
   # Generate moving averages of all losses and associated summaries.
+  # 生成所有损失和相关摘要的移动平均值
   loss_averages_op = _add_loss_summaries(total_loss)
 
   # Compute gradients.
+  # 计算 grad
   with tf.control_dependencies([loss_averages_op]):
     opt = tf.train.GradientDescentOptimizer(lr)
     grads = opt.compute_gradients(total_loss)
 
   # Apply gradients.
+  # 应用 grad
   apply_gradient_op = opt.apply_gradients(grads, global_step=global_step)
 
   # Add histograms for trainable variables.
+  # 为 训练变量 添加 直方图
   for var in tf.trainable_variables():
     tf.summary.histogram(var.op.name, var)
 
   # Add histograms for gradients.
+  # 为 grad 添加 直方图
   for grad, var in grads:
     if grad is not None:
       tf.summary.histogram(var.op.name + '/gradients', grad)
 
   # Track the moving averages of all trainable variables.
+  # 跟踪 移动平均
   variable_averages = tf.train.ExponentialMovingAverage(
       MOVING_AVERAGE_DECAY, global_step)
   with tf.control_dependencies([apply_gradient_op]):
@@ -370,7 +396,7 @@ def train(total_loss, global_step):
 
 
 def maybe_download_and_extract():
-  """Download and extract the tarball from Alex's website."""
+  """Download and extract the tarball from Alex's website.从 Alex 的网站中下载并解压 tarball"""
   dest_directory = FLAGS.data_dir
   if not os.path.exists(dest_directory):
     os.makedirs(dest_directory)
